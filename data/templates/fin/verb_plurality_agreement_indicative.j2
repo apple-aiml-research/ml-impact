@@ -1,0 +1,5 @@
+{% if scenario == "generation" -%}
+  {{ name }} _____
+{%- elif scenario == "judge" %}
+  {{ name }} {{ verb }}
+{% endif %}

@@ -1,0 +1,17 @@
+base_word,gender,plurality,inflection
+ثلاث,MASC,PL,['ثلاث']
+ثلاث,FEM,PL,['ثلاثة']
+أربع,MASC,PL,['أربع']
+أربع,FEM,PL,['أربعة']
+خمس,MASC,PL,['خمس']
+خمس,FEM,PL,['خمسة']
+ست,MASC,PL,['ست']
+ست,FEM,PL,['ستة']
+سبع,MASC,PL,['سبع']
+سبع,FEM,PL,['سبعة']
+ثمان,MASC,PL,"['ثمان','ثماني']"
+ثمان,FEM,PL,['ثمانية']
+تسع,MASC,PL,['تسع']
+تسع,FEM,PL,['تسعة']
+عشر,MASC,PL,['عشر']
+عشر,FEM,PL,['عشرة']

@@ -1,0 +1,9 @@
+defaults:
+  - model: base
+  - scenario: judge
+  - _self_
+
+instruction_prefix: You are an expert in {language} grammar, skilled in answering language tasks.
+system_method: direct
+system_instructions: ""
+filename: null

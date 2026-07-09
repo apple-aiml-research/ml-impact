@@ -1,0 +1,5 @@
+{% if scenario == "generation" -%}
+  Я _____ {{ preposition }}{{ place }} {{ time }}.
+{%- elif scenario == "judge" %}
+  Я {{ verb }} {{ preposition }}{{ place }} {{ time }}.
+{% endif %}

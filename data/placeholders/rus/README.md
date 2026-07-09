@@ -1,0 +1,1 @@
+In `places.csv`, the accusative form of the word "дом" has been replaced by the adverb "домой", so as to output a more natural sentence.

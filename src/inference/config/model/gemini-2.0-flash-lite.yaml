@@ -1,0 +1,16 @@
+defaults:
+  - base
+_target_: src.inference.models.gemini_backend.GeminiEvaluatorBase
+model_name: "gemini-2.0-flash-lite"
+max_tokens: 500
+top_k: 1
+temperature: 0.0
+top_p: 1
+timeout_seconds: 60
+max_retries: 3
+max_requests_per_second: 50
+region: "us-central1"
+project: ${oc.env:GCP_PROJECT_ID}
+response_mime_type: text/plain
+candidate_count: 1
+system_instructions: ${system_instructions.value}

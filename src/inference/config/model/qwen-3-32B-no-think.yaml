@@ -1,0 +1,9 @@
+_target_: src.inference.models.vllm_backend.VLLMClient
+model_name: "Qwen/Qwen3-32B"
+api_base: ""
+max_tokens: 500
+temperature: 0.7
+top_k: 20
+top_p: 0.8
+system_instructions: ${system_instructions.value}
+think_mode: False

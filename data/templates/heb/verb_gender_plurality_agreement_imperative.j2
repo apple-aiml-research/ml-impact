@@ -1,0 +1,5 @@
+{% if scenario == "generation" -%}
+  {{ "!" }}_____{{ " ," }} {{ "היי " }} {{ name }}
+{%- elif scenario == "judge" %}
+  {{ "!" }}{{ "היי" }} {{ name }}{{ ", " }}{{ verb }}
+{% endif %}

@@ -1,0 +1,468 @@
+#
+# For licensing see accompanying LICENSE file.
+# Copyright (C) 2026 Apple Inc. All Rights Reserved.
+#
+
+import random
+import pandas as pd
+from itertools import product
+from typing import List, Dict, Tuple
+
+from src.utils.text import str2list
+from src.templates.template_base import TemplateBase, register_template
+
+
+@register_template
+class RusAdjectiveCasePluralityAgreement(TemplateBase):
+    """Generates data for noun-adjective agreement in Russian utterances based on plurality, case, and gender."""
+
+    def __init__(self):
+        self.setup_common(
+            template_name="adjective_case_plurality_gender_agreement.j2",
+            lang_code="rus",
+        )
+
+        self.features = [
+            "gender",
+            "plurality",
+            "case",
+        ]
+        self.feature_values = {
+            "gender": ["FEM", "MASC", "NEUT"],
+            "plurality": ["SG", "PL"],
+            "case": ["NOM", "ACC", "DAT", "ESS", "INS", "GEN"],
+        }  # these are features we permute to generate test cases
+
+        self.additional_features = {}
+        self.mismatched_features = ["case", "plurality", "gender"]
+
+    def _generate_generation(self, additional_instruction: str = "") -> List[Dict]:
+        examples = {}
+        additional_instruction = "The adjective should be in the base form."
+
+        feature_combinations = list(product(*self.feature_values.values()))
+        example_id = 1
+
+        for feature_combination in feature_combinations:
+            noun_features = dict(zip(self.features, feature_combination))
+            gender = feature_combination[0]
+
+            # plural adjectives have no gender
+            if feature_combination[1] == "PL":
+                features = list(self.feature_values.keys())[1:]
+                feature_combination = feature_combination[1:]
+            else:
+                features = list(self.feature_values.keys())
+
+            adj_features = dict(zip(features, feature_combination))
+            base_nouns = self.placeholders.get_by_features(
+                "objects", **{"gender": gender}
+            ).base_word.unique()
+            for base_noun in base_nouns:
+                noun_feature_filter = {**noun_features, "base_word": base_noun}
+                inflected_nouns = self.get_inflected_forms(
+                    "objects", noun_feature_filter, ok_empty=True
+                )
+                base_adjectives = self.placeholders.get_by_features(
+                    "adjectives"
+                ).base_word.unique()
+                for inflected_noun in inflected_nouns:
+                    for base_adjective in base_adjectives:
+                        adj_feature_filter = {
+                            **adj_features,
+                            "base_word": base_adjective,
+                            "gender": gender,
+                            **self.additional_features,
+                        }
+
+                        adj_feature_filter = self._apply_correct_inflection_logic(
+                            adj_feature_filter
+                        )
+
+                        inflected_adjectives = self.get_inflected_forms(
+                            "adjectives", adj_feature_filter
+                        )
+
+                        correct_sentence = self.sentence_template.render(
+                            noun=inflected_noun, scenario="generation"
+                        ).strip()
+                        correct_prompt = self.generation_template.render(
+                            language=self.language,
+                            pos=base_adjective,
+                            pos_name="adjective",
+                            sentence=correct_sentence,
+                            additional_instruction=additional_instruction,
+                        )
+
+                        sentence_data = {
+                            "id": f"{base_adjective}_{example_id}_gen",
+                            "prompt": correct_prompt,
+                            "gold": inflected_adjectives,
+                            "metadata": {
+                                "language": self.language,
+                                "lang_code": self.lang_code,
+                                "scenario": "generation",
+                                "template_name": self.template_name,
+                                "sentence": correct_sentence,
+                                "slot_features": {
+                                    "noun": {
+                                        **noun_feature_filter,
+                                        "inflection": inflected_noun,
+                                    },
+                                    "adjective": {
+                                        **adj_feature_filter,
+                                        "inflection": inflected_adjectives,
+                                    },
+                                },
+                            },
+                        }
+                        key = correct_prompt
+                        examples[key] = examples.get(key, []) + [sentence_data]
+                        example_id += 1
+        post_processed_examples = self.postprocess_examples_generation(examples)
+        return post_processed_examples
+
+    def _generate_judgment(self, additional_instruction: str = "") -> List[Dict]:
+        examples = {}
+
+        feature_combinations = list(product(*self.feature_values.values()))
+
+        example_id = 1
+
+        for feature_combination in feature_combinations:
+            noun_features = dict(zip(self.features, feature_combination))
+            gender = feature_combination[0]
+
+            if feature_combination[1] == "PL":
+                features = list(self.feature_values.keys())[1:]
+                feature_combination = feature_combination[1:]
+            else:
+                features = list(self.feature_values.keys())
+            adj_features = dict(zip(features, feature_combination))
+            base_nouns = self.placeholders.get_by_features(
+                "objects", **{"gender": gender}
+            ).base_word.unique()
+
+            for base_noun in base_nouns:
+                noun_feature_filter = {**noun_features, "base_word": base_noun}
+                inflected_nouns = self.get_inflected_forms(
+                    "objects", noun_feature_filter, ok_empty=True
+                )
+                base_adjectives = self.placeholders.get_by_features(
+                    "adjectives"
+                ).base_word.unique()
+
+                for inflected_noun in inflected_nouns:
+                    for base_adjective in base_adjectives:
+                        adj_feature_filter = {
+                            **adj_features,
+                            "base_word": base_adjective,
+                            "gender": gender,
+                            **self.additional_features,
+                        }
+
+                        adj_feature_filter = self._apply_correct_inflection_logic(
+                            adj_feature_filter
+                        )
+
+                        noun_feature_filter["inflection"] = inflected_noun
+                        (
+                            correct_examples,
+                            correct_inflections,
+                            adj_feature_filter,
+                            example_id,
+                        ) = self._create_correct_judgments(
+                            noun_feature_filter,
+                            adj_feature_filter,
+                            additional_instruction,
+                            example_id,
+                        )
+
+                        for correct_example in correct_examples:
+                            key = correct_example["prompt"]
+                            if key not in examples:
+                                examples[key] = {}
+                            examples[key]["Yes"] = examples[key].get("Yes", []) + [
+                                correct_example
+                            ]
+
+                        exclude_features = {
+                            "case": [adj_feature_filter["case"]],
+                            "plurality": [adj_feature_filter["plurality"]],
+                        }
+
+                        if "gender" in adj_feature_filter:
+                            exclude_features["gender"] = [adj_feature_filter["gender"]]
+
+                        if "animacy" in adj_feature_filter:
+                            exclude_features["animacy"] = [
+                                adj_feature_filter["animacy"]
+                            ]
+
+                        (
+                            incorrect_examples,
+                            example_id,
+                        ) = self._create_incorrect_judgments(
+                            noun_feature_filter,
+                            adj_feature_filter,
+                            correct_inflections,
+                            additional_instruction,
+                            example_id,
+                            exclude_features,
+                        )
+
+                        for incorrect_example in incorrect_examples:
+                            key = incorrect_example["prompt"]
+                            if key not in examples:
+                                examples[key] = {}
+                            examples[key]["No"] = examples[key].get("No", []) + [
+                                incorrect_example
+                            ]
+
+        postprocessed_examples = self.postprocess_examples_judge(examples)
+        return postprocessed_examples
+
+    def _create_correct_judgments(
+        self,
+        noun_features: Dict,
+        adj_feature_filter: Dict,
+        additional_instruction: str,
+        example_id: int,
+    ) -> Tuple[List[Dict], List[str], Dict, int]:
+        """
+        Generate correct judgment examples for adjective agreement.
+
+        Args:
+            noun_features (Dict): Noun features (base_word, inflected_form, gender, plurality, animacy).
+            adj_feature_filter (str): Adjective features.
+            additional_instruction (str): Additional prompt instructions.
+            example_id (int): Current example ID counter.
+
+        Returns:
+            Tuple[List[Dict], List[str], Dict, int]: Correct examples, correct inflections, feature filter, and updated example ID.
+        """
+
+        examples = []
+
+        correct_inflections = self.get_inflected_forms("adjectives", adj_feature_filter)
+        for correct_inflection in correct_inflections:
+            correct_sentence = self.sentence_template.render(
+                noun=noun_features["inflection"],
+                adjective=correct_inflection,
+                scenario="judge",
+            ).strip()
+            correct_prompt = self.judge_template.render(
+                language=self.language,
+                sentence=correct_sentence,
+                additional_instruction=additional_instruction,
+            )
+
+            sentence_data = {
+                "id": f"{adj_feature_filter['base_word']}_{example_id}_pos",
+                "prompt": correct_prompt,
+                "gold": "Yes",
+                "metadata": {
+                    "language": self.language,
+                    "lang_code": self.lang_code,
+                    "scenario": "judge",
+                    "template_name": self.template_name,
+                    "sentence": correct_sentence,
+                    "slot_features": {
+                        "noun": noun_features,
+                        "adjective": {
+                            **adj_feature_filter,
+                            "inflection": correct_inflection,
+                        },
+                    },
+                    "correct_inflections": correct_inflections,
+                },
+            }
+
+            examples.append(sentence_data)
+            example_id += 1
+
+        return examples, correct_inflections, adj_feature_filter, example_id
+
+    def _create_incorrect_judgments(
+        self,
+        noun_features: Dict,
+        adjective_features: Dict,
+        correct_inflections: List[str],
+        additional_instruction: str,
+        example_id: int,
+        exclude_features: Dict = None,
+    ) -> Tuple[List[Dict], int]:
+        """
+        Generate incorrect judgment examples for adjective agreement, excluding specified feature values or lists.
+
+        Args:
+            noun_features (Dict): Noun features (base_word, inflected_form, gender, plurality, animacy).
+            adjective_features (Dict): Adjective features (gender, plurality, animacy).
+            correct_inflections (List[str]): List of correct adjective inflections.
+            additional_instruction (str): Additional prompt instructions.
+            example_id (int): Current example ID counter.
+            exclude_features (Dict, optional): Features to exclude (e.g., {'gender': ['MASC']}).
+
+        Returns:
+            Tuple[List[Dict], int]: Incorrect examples and updated example ID.
+        """
+
+        examples = []
+        base_adjective = adjective_features["base_word"]
+        # generate incorrect examples
+        adj_df = self.placeholders.get_by_features(
+            "adjectives", **{"base_word": base_adjective}
+        )
+
+        correct_inflection_set = set(correct_inflections)
+        # We now have the correct inflection set and need to get the incorrect one
+        # We can do this by filtering out the inflections that are different
+        # But before, we might have scenarios where a different inflection is actually correct
+
+        exclude_condition = pd.Series([True] * len(adj_df), index=adj_df.index)
+
+        conditions = []
+        if exclude_features:
+            for feat, value in exclude_features.items():
+                if feat not in adj_df.columns:
+                    continue
+                if isinstance(value, list):
+                    if not value:
+                        continue
+                    conditions.append(adj_df[feat].isin(value))
+                else:
+                    conditions.append(adj_df[feat] == value)
+
+        if conditions:
+            exclude_condition = ~pd.concat(conditions, axis=1).all(axis=1)
+
+        incorrect_adjective_data = adj_df[
+            exclude_condition
+            & ~adj_df["inflection"].apply(
+                lambda x: any(v in correct_inflection_set for v in str2list(x))
+            )
+        ]
+
+        if incorrect_adjective_data.empty:
+            raise ValueError(
+                f"There are no left inflected forms for {base_adjective} with {correct_inflection_set}."
+            )
+        incorrect_adjective_data = incorrect_adjective_data.drop_duplicates(
+            "inflection"
+        ).fillna("")  # rm incorrect data having same inflections
+
+        for _, incorrect_adjective_record in incorrect_adjective_data.iterrows():
+            incorrect_inflections = str2list(incorrect_adjective_record["inflection"])
+            incorrect_adjective_features = {
+                feat: incorrect_adjective_record[feat]
+                for feat in self.mismatched_features
+                if feat in incorrect_adjective_record
+            }
+            for incorrect_inflection in incorrect_inflections:
+                incorrect_sentence = self.sentence_template.render(
+                    noun=noun_features["inflection"],
+                    adjective=incorrect_inflection,
+                    scenario="judge",
+                ).strip()
+                incorrect_prompt = self.judge_template.render(
+                    language=self.language,
+                    sentence=incorrect_sentence,
+                    additional_instruction=additional_instruction,
+                )
+                mismatched_features = self._get_mismatched_features(
+                    incorrect_adjective_record, adjective_features
+                )
+                incorrect_adjective_features = {
+                    k: v for (k, v) in incorrect_adjective_features.items() if v
+                }
+                sentence_data = {
+                    "id": f"{base_adjective}_{example_id}_neg",
+                    "prompt": incorrect_prompt,
+                    "gold": "No",
+                    "metadata": {
+                        "language": self.language,
+                        "lang_code": self.lang_code,
+                        "scenario": "judge",
+                        "template_name": self.template_name,
+                        "sentence": incorrect_sentence,
+                        "slot_features": {
+                            "noun": noun_features,
+                            "adjective": {
+                                "base_word": incorrect_adjective_record["base_word"],
+                                "inflection": incorrect_inflection,
+                                **incorrect_adjective_features,
+                                **self.additional_features,
+                            },
+                        },
+                        "correct_inflections": correct_inflections,
+                        "mismatched_features": mismatched_features,
+                    },
+                }
+                examples.append(sentence_data)
+                example_id += 1
+
+        return examples, example_id
+
+    def postprocess_examples_generation(self, examples: Dict) -> List[Dict]:
+        # examples where noun inflection is the same
+        # in that case group the inflections for adjectives
+        post_processed_examples = []
+
+        for key in examples:
+            datapoints = examples[key]
+            if len(datapoints) == 1:
+                datapoint2add = datapoints[0]
+            else:
+                # group all inflected aspects into gold
+                # choose random example and append
+                random.seed(42)
+                datapoint2add = random.choice(datapoints)
+                combined_gold = [gold for x in datapoints for gold in x["gold"]]
+                datapoint2add["gold"] = list(set(combined_gold))
+
+            post_processed_examples.append(datapoint2add)
+        # Return the grouped examples
+        return post_processed_examples
+
+    def postprocess_examples_judge(self, examples: Dict) -> List[Dict]:
+        # sometimes we have examples that are grouped as "Yes" and "No".
+        # in that case, take one random examples feom yes "Yes"
+        post_processed_examples = []
+
+        for key in examples:
+            answer_dict = examples[key]
+            if len(answer_dict) == 1:
+                for _, vals in answer_dict.items():
+                    random.seed(42)
+                    datapoint2add = random.choice(vals)
+
+            else:
+                # take yes answer
+                random.seed(42)
+                datapoint2add = random.choice(answer_dict["Yes"])
+            post_processed_examples.append(datapoint2add)
+        return post_processed_examples
+
+    def _apply_correct_inflection_logic(self, features_dict: Dict) -> Dict:
+        """
+        Apply Russian-specific adjective inflection logic. Plural nouns do
+        not use genders and masculine singular nouns have have different
+        inflections for animate an inanimate objects for accusative case
+        Args:
+            features_dict (Dict): Feature dictionary.
+
+        Returns:
+            Dict: Updated feature dictionary
+        """
+        features_dict = features_dict.copy()
+
+        if features_dict["plurality"] == "PL":
+            features_dict.pop("gender")
+
+        if features_dict["plurality"] == "PL" or (
+            features_dict["plurality"] == "SG" and features_dict["gender"] == "MASC"
+        ):
+            if features_dict["case"] == "ACC":
+                features_dict["animacy"] = "INAN"
+
+        return features_dict
